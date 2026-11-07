@@ -1,5 +1,5 @@
 --[[ ══════════════════════════════════════════════════════════════════════
-  TinyDex STANDALONE (No PULSAR) v1 — PRIMEz Studios Dex Explorer
+  TinyDex STANDALONE (No PULSAR) v1.1 — PRIMEz Studios Dex Explorer
   All v22 dex features (Explorer, Inspect, 3D Preview, Workspace, read-only
   diagnostics Console) with NO PULSAR AI and NO backend calls.
   NEW vs TinyDEX No_pulsar (v1):
@@ -11,6 +11,18 @@
   • PRIMEz TAB — brand page with JOIN DISCORD (invite copied to your
     clipboard), OFFICIAL SITE, and GET FULL VERSION (PULSAR loadstring).
   • DISCORD button in the top bar — one tap, invite copied.
+
+  WHAT'S NEW IN v1.1 (LAG-FREE PATCH)
+  • BG NOW VISIBLE: the brand layer renders as an OVERLAY (ZIndex 50)
+    instead of hiding behind the opaque dex panels — the PRIMEz watermark
+    is visible on every tab, and BG_ASSET_ID still swaps in your real logo
+    art. The labels are non-active: taps pass through to the UI below.
+  • LAG FIX 1 — DEBOUNCED SEARCH: one tree re-render 0.25s after you stop
+    typing, instead of a full re-render on every single keystroke.
+  • LAG FIX 2 — RENDER BUDGETS: max 300 rows on screen and a 9000-node
+    budget for search scans, so huge games can no longer freeze the frame.
+  • LAG FIX 3 — CONSOLE LIMITS: newest 150 lines kept, log floods capped
+    at 60 lines/second with a drop notice — no more endless log spam.
 ══════════════════════════════════════════════════════════════════════ ]]
 
 local plr = game:GetService("Players").LocalPlayer
@@ -60,39 +72,38 @@ local winScale = Instance.new("UIScale")
 winScale.Name = "ResponsiveScale"
 winScale.Parent = win
 
--- ── PRIMEz background layer (first children of win → behind all content) ──
+-- ── PRIMEz brand layer — OVERLAY watermark (v1.1). The dex panels are
+-- opaque, so a background drawn behind them is invisible. ZIndex 50 puts
+-- the brand ABOVE every panel; the labels are non-active, so all taps
+-- pass straight through to the buttons underneath. Set BG_ASSET_ID to
+-- your logo's Roblox image asset id to show the real artwork instead.
 local BG_ASSET_ID = 0
 local bgImg = Instance.new("ImageLabel")
 bgImg.Name = "PRIMEzBG"
 bgImg.Size = UDim2.new(1, 0, 1, 0)
 bgImg.BackgroundTransparency = 1
-bgImg.ImageTransparency = 0.3
+bgImg.ImageTransparency = 0.72
 bgImg.ScaleType = Enum.ScaleType.Fit
 bgImg.Visible = false
+bgImg.ZIndex = 50
+bgImg.Active = false
 bgImg.Parent = win
-local bgTint = Instance.new("Frame")
-bgTint.Name = "PRIMEzBGTint"
-bgTint.Size = UDim2.new(1, 0, 1, 0)
-bgTint.BackgroundColor3 = C.bg
-bgTint.BackgroundTransparency = 0.55
-bgTint.BorderSizePixel = 0
-bgTint.Visible = false
-bgTint.Parent = win
 local bgText = Instance.new("TextLabel")
 bgText.Name = "PRIMEzBGWatermark"
 bgText.Size = UDim2.new(1, 0, 1, 0)
 bgText.BackgroundTransparency = 1
 bgText.Font = Enum.Font.GothamBold
 bgText.TextSize = 64
-bgText.TextColor3 = Color3.fromRGB(63, 34, 105)
-bgText.TextTransparency = 0.7
+bgText.TextColor3 = Color3.fromRGB(120, 82, 190)
+bgText.TextTransparency = 0.8
 bgText.Text = "◆ PRIMEz\nStudios"
 bgText.Visible = false
+bgText.ZIndex = 50
+bgText.Active = false
 bgText.Parent = win
 if type(BG_ASSET_ID) == "number" and BG_ASSET_ID > 0 then
   bgImg.Image = "rbxassetid://" .. tostring(BG_ASSET_ID)
   bgImg.Visible = true
-  bgTint.Visible = true
 else
   bgText.Visible = true
 end
@@ -140,7 +151,7 @@ brandSub.Font = Enum.Font.Gotham
 brandSub.TextSize = 9
 brandSub.TextXAlignment = Enum.TextXAlignment.Left
 brandSub.TextColor3 = Color3.fromRGB(177, 145, 235)
-brandSub.Text = "by PRIMEz Studios  •  Standalone v1"
+brandSub.Text = "by PRIMEz Studios  •  Standalone v1.1"
 brandSub.Parent = bar
 
 -- manual drag on the title bar only
@@ -230,7 +241,7 @@ footer.Font = Enum.Font.Gotham
 footer.TextSize = 9
 footer.TextXAlignment = Enum.TextXAlignment.Right
 footer.TextColor3 = Color3.fromRGB(133, 112, 170)
-footer.Text = "PRIMEz Studios   •   Dex Explorer   •   Standalone v1"
+footer.Text = "PRIMEz Studios   •   Dex Explorer   •   Standalone v1.1"
 footer.Parent = win
 local function flash(t, c)
   status.Text = tostring(t)
@@ -716,6 +727,10 @@ function render()
   end
   vis = {}
   local q = search.Text:lower()
+  -- v1.1 LAG FIX: hard budgets — the old render walked the entire game
+  -- tree with no cap while searching, which froze big games for seconds.
+  local matchBudget = 9000
+  local MAX_ROWS = 300
   local matchBelowCache = {}
 
   local function matches(inst)
@@ -744,6 +759,11 @@ function render()
     if matchBelowCache[inst] ~= nil then
       return matchBelowCache[inst]
     end
+    if matchBudget <= 0 then
+      matchBelowCache[inst] = false
+      return false
+    end
+    matchBudget -= 1
     local found = false
     for _, child in ipairs(getChildren(inst)) do
       if matches(child) or hasMatchBelow(child) then
@@ -769,6 +789,7 @@ function render()
   -- Each visible row is a node in a real tree. Ancestor guide lines are
   -- repeated down the rows while that ancestor has following siblings.
   local function walk(parentInst, depth, ancestorContinues)
+    if #vis >= MAX_ROWS then return end
     local sourceKids = getChildren(parentInst)
     local shownKids = {}
     for _, child in ipairs(sourceKids) do
@@ -883,9 +904,18 @@ function render()
   end
 
   walk(game, 0, {})
-  flash(#vis .. " shown", C.dim)
+  flash(#vis .. " shown" .. (#vis >= MAX_ROWS and " · capped — type to narrow it" or ""), C.dim)
 end
-search:GetPropertyChangedSignal("Text"):Connect(function() safe("render", render) end)
+-- v1.1 LAG FIX: debounced search — the old code re-rendered the whole tree
+-- on EVERY keystroke. Now one render runs 0.25s after typing stops.
+local searchDebounce = nil
+search:GetPropertyChangedSignal("Text"):Connect(function()
+  if searchDebounce then return end
+  searchDebounce = task.delay(0.25, function()
+    searchDebounce = nil
+    safe("render", render)
+  end)
+end)
 
 local function revealNode(inst)
   local chain = {}
@@ -1463,6 +1493,9 @@ termOut.Parent = termPage
 Instance.new("UIListLayout", termOut).SortOrder = Enum.SortOrder.LayoutOrder
 Instance.new("UIPadding", termOut).PaddingTop = UDim.new(0, 2)
 
+-- v1.1 LAG FIX: the console used to keep EVERY log message forever — log
+-- spam slowly ate memory and layout time. Keep the newest 150 lines only.
+local termLineCount = 0
 local function out(msg, col)
   local l = Instance.new("TextLabel")
   l.Size = UDim2.new(1, 0, 0, 14)
@@ -1474,9 +1507,26 @@ local function out(msg, col)
   l.TextXAlignment = Enum.TextXAlignment.Left
   l.TextTruncate = Enum.TextTruncate.AtEnd
   l.Parent = termOut
+  termLineCount += 1
+  if termLineCount > 150 then
+    for _, child in ipairs(termOut:GetChildren()) do
+      if child:IsA("TextLabel") then child:Destroy(); break end
+    end
+    termLineCount = 150
+  end
   termOut.CanvasPosition = Vector2.new(0, 9e9)
 end
+-- v1.1 LAG FIX: flood guard — games that print hundreds of lines per
+-- second can no longer bury the client; extras drop with a notice.
+local logWindowCount, logWindowAt = 0, 0
 LogService.MessageOut:Connect(function(msg, t)
+  local now = os.clock()
+  if now - logWindowAt > 1 then logWindowAt, logWindowCount = now, 0 end
+  logWindowCount += 1
+  if logWindowCount == 61 then
+    out("(log flood — extra messages this second hidden)", C.dim)
+  end
+  if logWindowCount > 60 then return end
   local col = Color3.fromRGB(204,204,204)
   if t == Enum.MessageType.MessageWarning then col = Color3.fromRGB(255,142,60)
   elseif t == Enum.MessageType.MessageError then col = Color3.fromRGB(255,68,68) end
@@ -1541,6 +1591,7 @@ termIn.FocusLost:Connect(function(enter)
     for _, child in ipairs(termOut:GetChildren()) do
       if child:IsA("TextLabel") then child:Destroy() end
     end
+    termLineCount = 0
   else
     out("Unknown command. Type help.", C.bad)
   end
